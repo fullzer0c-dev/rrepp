@@ -1,33 +1,48 @@
 """
-🤫 Бот для плагина "Шепот" (Exteragram)
-========================================
-Установка:
-    pip install pyTelegramBotAPI
-
-Запуск:
-    python shepot_bot.py
-
-Получи токен у @BotFather и вставь ниже.
+🤫 Бот Шепота — финальная версия для Render
+============================================
+Файлы для GitHub:
+  - shepot_bot.py     (этот файл)
+  - requirements.txt  (pyTelegramBotAPI + flask)
 """
 
 import base64
 import random
+import threading
+import os
+
 import telebot
+from flask import Flask
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # ╔══════════════════════════════════════════════════╗
-# ║  ВСТАВЬ ТОКЕН БОТА от @BotFather                ║
+# ║  Вставь токен бота от @BotFather                ║
 # ╚══════════════════════════════════════════════════╝
-BOT_TOKEN = "8618276737:AAH1hVvquZMH14or2WRU-DwOnp6ZpMorGxQ"
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8618276737:AAH1hVvquZMH14or2WRU-DwOnp6ZpMorGxQ")
 
 bot = telebot.TeleBot(BOT_TOKEN)
+
+# ── Flask-сервер чтобы Render не засыпал ─────────────────────────────────────
+app = Flask(__name__)
+
+@app.route("/")
+def index():
+    return "🤫 Бот Шепота работает!", 200
+
+@app.route("/health")
+def health():
+    return "ok", 200
+
+def run_flask():
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
 
 # ── Смешные цитаты для чужаков ────────────────────────────────────────────────
 FORBIDDEN_QUOTES = [
     "🙈 Шепот — не для твоих ушей, дружище. Иди займись своими делами!",
     "🦜 Попугай тоже хочет знать чужие секреты. Попугаю тоже не говорят.",
     "🔐 Этот шепот защищён силой древних магов и одной строчкой кода.",
-    "🕵️ Агент 007 пытался взломать этот шепот. Провалился. Ты — тоже.",
+    "🕵️ Агент 007 пытался взломать этот шепот. Провалился. Ты тоже.",
     "🍕 За подслушивание чужих шепотов полагается лишение пиццы на 3 недели.",
     "🐉 Дракон охраняет этот шепот. Дракон сыт, но принципиален.",
     "👻 Призрак Неизданных Секретов смотрит на тебя с разочарованием.",
@@ -43,14 +58,14 @@ FORBIDDEN_QUOTES = [
     "🐈 Кот знает все тайны мира, но выдаёт их только адресату. Ты — не адресат.",
     "🎩 Фокусник исчез бы с этим шепотом. Ты, к сожалению, не фокусник.",
     "🧊 Шепот заморожен в криоскладе секретов. Доступ — только для посвящённых.",
-    "🪐 На Марсе разрешили бы тебе слушать чужие шепоты. Но ты не на Марсе.",
+    "🪐 На Марсе разрешили бы слушать чужие шепоты. Но ты не на Марсе.",
 ]
 
 
+# ── Утилиты ───────────────────────────────────────────────────────────────────
+
 def decode_secret(encoded: str) -> str | None:
-    """Декодирует base64-строку обратно в текст."""
     try:
-        # Добавляем padding если нужно
         padding = 4 - len(encoded) % 4
         if padding != 4:
             encoded += "=" * padding
@@ -59,10 +74,10 @@ def decode_secret(encoded: str) -> str | None:
         return None
 
 
-def parse_callback_data(data: str) -> tuple[str, str, str] | None:
+def parse_callback(data: str):
     """
-    Формат: s|sender|target|encoded_message
-    Возвращает (sender, target, secret_text) или None при ошибке.
+    Формат callback_data: s|sender|target|base64_message
+    Возвращает (sender, target, secret) или None.
     """
     try:
         parts = data.split("|", 3)
@@ -77,67 +92,67 @@ def parse_callback_data(data: str) -> tuple[str, str, str] | None:
         return None
 
 
-# ── /start ────────────────────────────────────────────────────────────────────
-@bot.message_handler(commands=["start"])
+# ── Команды бота ─────────────────────────────────────────────────────────────
+
+@bot.message_handler(commands=["start", "help"])
 def cmd_start(message):
     bot.reply_to(
         message,
         "🤫 *Бот Шепота*\n\n"
-        "Я работаю в паре с плагином *Шепот* для Exteragram.\n\n"
-        "Используй команду в чате:\n"
+        "Работает в паре с плагином *Шепот* для Exteragram.\n\n"
+        "Как использовать в чате:\n"
         "`.шепот @username секретный текст`\n\n"
-        "Только адресат увидит содержимое шепота!",
+        "Только отправитель и адресат увидят шепот.\n"
+        "Все остальные получат смешную отговорку 😄",
         parse_mode="Markdown"
     )
 
 
-# ── Обработчик inline-кнопки ─────────────────────────────────────────────────
+# ── Обработчик кнопки ─────────────────────────────────────────────────────────
+
 @bot.callback_query_handler(func=lambda call: call.data.startswith("s|"))
-def handle_whisper_button(call):
-    parsed = parse_callback_data(call.data)
+def handle_whisper(call):
+    parsed = parse_callback(call.data)
 
     if parsed is None:
         bot.answer_callback_query(
             call.id,
-            text="❌ Шепот повреждён или уже недоступен.",
+            text="❌ Шепот повреждён или недоступен.",
             show_alert=True
         )
         return
 
-    sender, target, secret_text = parsed
+    sender, target, secret = parsed
+    clicker = (call.from_user.username or "").lower().strip()
+    sender_clean = sender.lower().strip()
+    target_clean = target.lower().strip()
 
-    # Получаем username того, кто нажал кнопку
-    clicker = call.from_user
-    clicker_username = (clicker.username or "").lower().strip()
-    target_clean = target.lower().strip().lstrip("@")
-    sender_clean = sender.lower().strip().lstrip("@")
-
-    # Адресат или отправитель могут читать шепот
-    is_allowed = (
-        clicker_username == target_clean
-        or clicker_username == sender_clean
-    )
-
-    if is_allowed:
-        # Показываем шепот
+    # Отправитель и адресат читают шепот
+    if clicker in (sender_clean, target_clean):
         bot.answer_callback_query(
             call.id,
-            text=f"🤫 {secret_text}",
+            text=f"🤫 {secret}",
             show_alert=True
         )
     else:
-        # Показываем рандомную смешную цитату
-        quote = random.choice(FORBIDDEN_QUOTES)
+        # Все остальные — рандомная цитата
         bot.answer_callback_query(
             call.id,
-            text=quote,
+            text=random.choice(FORBIDDEN_QUOTES),
             show_alert=True
         )
 
 
 # ── Запуск ────────────────────────────────────────────────────────────────────
+
 if __name__ == "__main__":
-    print("🤫 Бот Шепота запущен...")
-    print(f"   Бот: @{bot.get_me().username}")
-    print("   Ожидаю нажатия кнопок...")
+    print(f"🤫 Запуск бота @{bot.get_me().username}...")
+
+    # Flask в отдельном потоке — держит Render живым
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+    print("🌐 Flask запущен, Render не заснёт.")
+
+    # Бот в основном потоке
+    print("📡 Polling запущен...")
     bot.infinity_polling(timeout=30, long_polling_timeout=20)
