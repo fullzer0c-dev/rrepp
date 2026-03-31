@@ -18,7 +18,7 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 # ╔══════════════════════════════════════════════════╗
 # ║  ВСТАВЬ ТОКЕН БОТА от @BotFather                ║
 # ╚══════════════════════════════════════════════════╝
-BOT_TOKEN = "ВСТАВЬ_ТОКЕН_СЮДА"
+BOT_TOKEN = "8618276737:AAH1hVvquZMH14or2WRU-DwOnp6ZpMorGxQ"
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
